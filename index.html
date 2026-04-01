@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Morning Routine Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+            overscroll-behavior-y: contain;
+        }
+
+        .clock-container {
+            position: relative;
+            width: 280px;
+            height: 280px;
+            border-radius: 50%;
+            background: white;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+
+        .clock-hand {
+            position: absolute;
+            bottom: 50%;
+            left: 50%;
+            width: 4px;
+            height: 42%;
+            background: #1e293b;
+            transform-origin: bottom center;
+            border-radius: 4px;
+            z-index: 20;
+            transition: transform 0.2s linear;
+        }
+
+        .clock-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 12px;
+            height: 12px;
+            background: #1e293b;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 30;
+        }
+
+        .task-card {
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .dragging {
+            opacity: 0.9;
+            transform: scale(1.02);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            z-index: 50;
+            position: relative;
+            background-color: #f1f5f9 !important;
+        }
+
+        .task-active {
+            transform: scale(1.02);
+            border-left: 8px solid !important;
+            background-color: white;
+            box-shadow: 0 4px 12px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .drag-handle {
+            cursor: grab;
+            padding: 12px;
+            color: #cbd5e1;
+            touch-action: none;
+        }
+        
+        .drag-handle:active {
+            cursor: grabbing;
+        }
+
+        .edit-input {
+            border-bottom: 2px solid #e2e8f0;
+            outline: none;
+            background: transparent;
+        }
+        .edit-input:focus {
+            border-bottom-color: #6366f1;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8 flex flex-col items-center min-h-screen">
+
+    <div class="max-w-md w-full">
+        <header class="text-center mb-6">
+            <h1 class="text-3xl font-bold text-slate-800">Morning Routine</h1>
+            <p id="totalTimeLabel" class="text-slate-500 font-medium">Total Time: 70m</p>
+        </header>
+
+        <!-- Visual Clock -->
+        <div class="flex justify-center mb-8">
+            <div class="clock-container" id="clock">
+                <div class="clock-center"></div>
+                <div class="clock-hand" id="hand" style="transform: rotate(0deg)"></div>
+                <svg viewBox="0 0 100 100" class="absolute inset-0 w-full h-full transform -rotate-90">
+                    <g id="donut-segments"></g>
+                </svg>
+            </div>
+        </div>
+
+        <!-- Timer Display -->
+        <div class="text-center mb-4 bg-white py-4 rounded-2xl shadow-sm border border-slate-100">
+            <div id="timerDisplay" class="text-5xl font-mono font-bold text-slate-700 leading-none">00:00</div>
+            <div id="currentTaskLabel" class="text-sm font-semibold uppercase tracking-wider text-indigo-500 mt-3">Ready to start?</div>
+        </div>
+
+        <!-- Controls -->
+        <div class="flex flex-col gap-3 mb-8">
+            <div class="flex gap-3">
+                <button id="startBtn" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-bold shadow-lg transition active:scale-95">
+                    Start Routine
+                </button>
+                <button id="resetBtn" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-3 rounded-xl font-bold transition active:scale-95 text-sm">
+                    Reset
+                </button>
+            </div>
+            <button id="testAudioBtn" class="text-xs text-slate-400 font-semibold uppercase hover:text-indigo-500 transition">
+                🔊 Enable Audio / Test Beep
+            </button>
+        </div>
+
+        <!-- Task List -->
+        <div id="taskList" class="space-y-3 mb-10">
+            <!-- Tasks injected here -->
+        </div>
+    </div>
+
+    <script>
+        let tasks = [
+            { id: 1, name: "Wake up & Dress", duration: 15, color: "#93c5fd" },
+            { id: 2, name: "Washroom", duration: 5, color: "#60a5fa" },
+            { id: 3, name: "Eat Breakfast", duration: 20, color: "#fbbf24" },
+            { id: 4, name: "Make Lunch", duration: 10, color: "#34d399" },
+            { id: 5, name: "Brush Teeth", duration: 5, color: "#2dd4bf" },
+            { id: 6, name: "Brush Hair", duration: 5, color: "#818cf8" },
+            { id: 7, name: "School Bag", duration: 2, color: "#f472b6" },
+            { id: 8, name: "Dance Bag", duration: 3, color: "#fb7185" },
+            { id: 9, name: "Go to Car", duration: 5, color: "#475569" }
+        ];
+
+        let timer = null;
+        let elapsedSeconds = 0;
+        let editingId = null;
+        let lastTaskId = null;
+        
+        // Audio setup
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        function playBeep(frequency, startTime) {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(frequency, startTime);
+            
+            gain.gain.setValueAtTime(0, startTime);
+            gain.gain.linearRampToValueAtTime(0.1, startTime + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.1);
+            
+            osc.start(startTime);
+            osc.stop(startTime + 0.15);
+        }
+
+        function playTripleBeep() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const now = audioCtx.currentTime;
+            playBeep(880, now);
+            playBeep(880, now + 0.2);
+            playBeep(880, now + 0.4);
+        }
+
+        const startBtn = document.getElementById('startBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const testAudioBtn = document.getElementById('testAudioBtn');
+        const timerDisplay = document.getElementById('timerDisplay');
+        const hand = document.getElementById('hand');
+        const taskList = document.getElementById('taskList');
+        const donutSegments = document.getElementById('donut-segments');
+        const currentTaskLabel = document.getElementById('currentTaskLabel');
+        const totalTimeLabel = document.getElementById('totalTimeLabel');
+
+        function getTotalMinutes() {
+            return tasks.reduce((sum, t) => sum + t.duration, 0);
+        }
+
+        function renderTasks() {
+            taskList.innerHTML = '';
+            tasks.forEach((task, index) => {
+                const isEditing = editingId === task.id;
+                const div = document.createElement('div');
+                div.id = `task-row-${task.id}`;
+                div.className = `task-card flex items-center p-3 rounded-xl border border-slate-200 bg-white`;
+                div.style.borderLeft = `4px solid ${task.color}`;
+                div.draggable = !isEditing;
+                div.dataset.id = task.id;
+
+                div.innerHTML = `
+                    <div class="flex-1 min-w-0 pr-2">
+                        ${isEditing ? 
+                            `<input id="edit-name-${task.id}" class="edit-input font-medium text-slate-700 w-full mb-1" value="${task.name}">` : 
+                            `<div class="font-bold text-slate-700 truncate">${task.name}</div>`
+                        }
+                        <div class="text-xs text-slate-400 font-medium uppercase tracking-tight">
+                            ${isEditing ? 
+                                `<input id="edit-dur-${task.id}" type="number" class="edit-input w-12" value="${task.duration}"> mins` : 
+                                `${task.duration} minutes`
+                            }
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-1 shrink-0">
+                        ${isEditing ? 
+                            `<button onclick="saveTask(${task.id})" class="text-green-600 font-bold text-xs bg-green-50 px-3 py-2 rounded-lg">SAVE</button>` : 
+                            `<button onclick="editTask(${task.id})" class="text-slate-300 hover:text-indigo-600 p-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                            </button>
+                            <div class="drag-handle" draggable="false">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+                            </div>`
+                        }
+                    </div>
+                `;
+
+                div.addEventListener('dragstart', (e) => {
+                    if (editingId) return e.preventDefault();
+                    div.classList.add('dragging');
+                    e.dataTransfer.setData('text/plain', task.id);
+                });
+                div.addEventListener('dragend', () => div.classList.remove('dragging'));
+
+                taskList.appendChild(div);
+            });
+
+            setupDragAndDrop();
+            updateUI();
+        }
+
+        function setupDragAndDrop() {
+            taskList.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                const afterElement = getDragAfterElement(taskList, e.clientY);
+                const draggable = document.querySelector('.dragging');
+                if (draggable == null) return;
+                if (afterElement == null) {
+                    taskList.appendChild(draggable);
+                } else {
+                    taskList.insertBefore(draggable, afterElement);
+                }
+            });
+
+            taskList.addEventListener('drop', (e) => {
+                e.preventDefault();
+                saveNewOrder();
+            });
+        }
+
+        function getDragAfterElement(container, y) {
+            const draggableElements = [...container.querySelectorAll('.task-card:not(.dragging)')];
+
+            return draggableElements.reduce((closest, child) => {
+                const box = child.getBoundingClientRect();
+                const offset = y - box.top - box.height / 2;
+                if (offset < 0 && offset > closest.offset) {
+                    return { offset: offset, element: child };
+                } else {
+                    return closest;
+                }
+            }, { offset: Number.NEGATIVE_INFINITY }).element;
+        }
+
+        function saveNewOrder() {
+            const newOrderIds = [...taskList.querySelectorAll('.task-card')].map(el => parseInt(el.dataset.id));
+            const reorderedTasks = newOrderIds.map(id => tasks.find(t => t.id === id));
+            tasks = reorderedTasks;
+            renderClock();
+        }
+
+        function renderClock() {
+            donutSegments.innerHTML = '';
+            const total = getTotalMinutes();
+            totalTimeLabel.innerText = `Total Time: ${total}m`;
+            
+            let cumulativePercent = 0;
+            tasks.forEach(task => {
+                const percent = (task.duration / total) * 100;
+                const strokeDasharray = `${percent} ${100 - percent}`;
+                const strokeDashoffset = -cumulativePercent;
+                
+                const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                circle.setAttribute("cx", "50");
+                circle.setAttribute("cy", "50");
+                circle.setAttribute("r", "40");
+                circle.setAttribute("fill", "transparent");
+                circle.setAttribute("stroke", task.color);
+                circle.setAttribute("stroke-width", "16");
+                circle.setAttribute("stroke-dasharray", strokeDasharray);
+                circle.setAttribute("stroke-dashoffset", strokeDashoffset);
+                circle.setAttribute("pathLength", "100");
+                donutSegments.appendChild(circle);
+
+                cumulativePercent += percent;
+            });
+            updateUI();
+        }
+
+        window.editTask = function(id) {
+            editingId = id;
+            renderTasks();
+        };
+
+        window.saveTask = function(id) {
+            const nameInput = document.getElementById(`edit-name-${id}`);
+            const durInput = document.getElementById(`edit-dur-${id}`);
+            
+            tasks = tasks.map(t => t.id === id ? {
+                ...t, 
+                name: nameInput.value, 
+                duration: parseInt(durInput.value) || 1
+            } : t);
+            
+            editingId = null;
+            renderTasks();
+            renderClock();
+        };
+
+        function updateUI() {
+            const totalMin = getTotalMinutes();
+            const totalSec = totalMin * 60;
+            const currentMinutes = elapsedSeconds / 60;
+            
+            const displayMin = Math.floor(currentMinutes);
+            const displaySec = Math.floor(elapsedSeconds % 60);
+            timerDisplay.innerText = `${String(displayMin).padStart(2, '0')}:${String(displaySec).padStart(2, '0')}`;
+            
+            const rotation = totalSec > 0 ? (elapsedSeconds / totalSec) * 360 : 0;
+            hand.style.transform = `rotate(${rotation}deg)`;
+
+            let runningSum = 0;
+            let activeFound = false;
+            let currentTaskId = null;
+
+            tasks.forEach(task => {
+                const row = document.getElementById(`task-row-${task.id}`);
+                if (!row) return;
+
+                const startTime = runningSum;
+                const endTime = runningSum + task.duration;
+
+                if (currentMinutes >= startTime && currentMinutes < endTime) {
+                    row.classList.add('task-active');
+                    currentTaskLabel.innerText = task.name;
+                    activeFound = true;
+                    currentTaskId = task.id;
+                } else {
+                    row.classList.remove('task-active');
+                }
+                runningSum = endTime;
+            });
+
+            // Check for task change to trigger beeps
+            if (currentTaskId !== null && currentTaskId !== lastTaskId) {
+                if (lastTaskId !== null) { // Don't beep at the very start
+                    playTripleBeep();
+                }
+                lastTaskId = currentTaskId;
+            }
+
+            if (!activeFound && currentMinutes >= totalMin && totalMin > 0) {
+                currentTaskLabel.innerText = "All done! Go girls!";
+                currentTaskLabel.classList.remove('text-indigo-500');
+                currentTaskLabel.classList.add('text-green-500');
+                if (lastTaskId !== "done") {
+                    playTripleBeep();
+                    lastTaskId = "done";
+                }
+                stopTimer();
+            }
+        }
+
+        function startTimer() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            if (timer) return;
+            startBtn.innerText = "Pause";
+            startBtn.classList.replace('bg-indigo-600', 'bg-orange-500');
+            
+            timer = setInterval(() => {
+                const totalSec = getTotalMinutes() * 60;
+                if (elapsedSeconds < totalSec) {
+                    elapsedSeconds++;
+                    updateUI();
+                } else {
+                    stopTimer();
+                }
+            }, 1000);
+        }
+
+        function stopTimer() {
+            clearInterval(timer);
+            timer = null;
+            startBtn.innerText = "Resume";
+            if (startBtn.classList.contains('bg-orange-500')) {
+                startBtn.classList.replace('bg-orange-500', 'bg-indigo-600');
+            }
+        }
+
+        startBtn.addEventListener('click', () => {
+            if (timer) stopTimer();
+            else startTimer();
+        });
+
+        resetBtn.addEventListener('click', () => {
+            stopTimer();
+            elapsedSeconds = 0;
+            lastTaskId = null;
+            startBtn.innerText = "Start Routine";
+            currentTaskLabel.innerText = "Ready to start?";
+            currentTaskLabel.className = "text-sm font-semibold uppercase tracking-wider text-indigo-500 mt-3";
+            updateUI();
+        });
+
+        testAudioBtn.addEventListener('click', () => {
+            playTripleBeep();
+        });
+
+        // Initialize
+        renderTasks();
+        renderClock();
+    </script>
+</body>
+</html>
+
