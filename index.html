@@ -11,9 +11,9 @@
         body {
             font-family: 'Inter', sans-serif;
             background-color: #f8fafc;
-            /* Prevent pull-to-refresh on mobile while dragging */
             overscroll-behavior-y: contain;
             touch-action: pan-y;
+            -webkit-tap-highlight-color: transparent;
         }
 
         .clock-container {
@@ -51,30 +51,26 @@
         }
 
         .task-card {
-            transition: transform 0.1s ease, box-shadow 0.1s ease;
             user-select: none;
             -webkit-user-select: none;
             position: relative;
         }
 
-        /* Styles for when a card is being dragged via touch */
-        .dragging-active {
-            opacity: 0.9;
-            transform: scale(1.05);
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-            z-index: 100;
-            pointer-events: none;
-            position: fixed !important;
-            width: calc(100% - 2rem);
-            max-width: 416px; /* max-md minus padding */
+        /* The item being moved */
+        .is-dragging {
+            opacity: 0.3;
+            background-color: #f1f5f9 !important;
+            border-style: dashed !important;
         }
 
-        .drop-placeholder {
-            background-color: #f1f5f9;
-            border: 2px dashed #cbd5e1;
-            border-radius: 0.75rem;
-            height: 70px;
-            margin-bottom: 0.75rem;
+        /* The floating visual ghost */
+        .drag-ghost {
+            position: fixed !important;
+            z-index: 9999;
+            pointer-events: none;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            transform: scale(1.05);
+            opacity: 0.9;
         }
 
         .task-active {
@@ -87,7 +83,7 @@
             cursor: grab;
             padding: 12px;
             color: #cbd5e1;
-            touch-action: none; /* Crucial for tablet touch handling */
+            touch-action: none;
         }
         
         .drag-handle:active {
@@ -99,13 +95,10 @@
             outline: none;
             background: transparent;
         }
-        .edit-input:focus {
-            border-bottom-color: #6366f1;
-        }
 
         .color-dot {
-            width: 28px;
-            height: 28px;
+            width: 32px;
+            height: 32px;
             border-radius: 50%;
             cursor: pointer;
             border: 2px solid transparent;
@@ -124,7 +117,6 @@
             <p id="totalTimeLabel" class="text-slate-500 font-medium">Total Time: --</p>
         </header>
 
-        <!-- Visual Clock -->
         <div class="flex justify-center mb-8">
             <div class="clock-container" id="clock">
                 <div class="clock-center"></div>
@@ -135,13 +127,11 @@
             </div>
         </div>
 
-        <!-- Timer Display -->
         <div class="text-center mb-4 bg-white py-4 rounded-2xl shadow-sm border border-slate-100">
             <div id="timerDisplay" class="text-5xl font-mono font-bold text-slate-700 leading-none">00:00</div>
             <div id="currentTaskLabel" class="text-sm font-semibold uppercase tracking-wider text-indigo-500 mt-3">Ready to start?</div>
         </div>
 
-        <!-- Controls -->
         <div class="flex flex-col gap-3 mb-8">
             <div class="flex gap-3">
                 <button id="startBtn" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-4 rounded-xl font-bold shadow-lg transition active:scale-95">
@@ -156,12 +146,10 @@
             </button>
         </div>
 
-        <!-- Task List -->
         <div id="taskList" class="space-y-3 mb-4">
-            <!-- Tasks injected here -->
+            <!-- Tasks -->
         </div>
 
-        <!-- Add Task Button -->
         <button id="addTaskBtn" class="w-full py-4 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 font-bold hover:border-indigo-300 hover:text-indigo-400 transition flex items-center justify-center gap-2 mb-20">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
             Add New Task
@@ -190,10 +178,6 @@
 
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         
-        function saveToStorage() {
-            localStorage.setItem('morning_routine_tasks', JSON.stringify(tasks));
-        }
-
         function playBeep(frequency, startTime) {
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
@@ -216,15 +200,14 @@
             playBeep(880, now + 0.4);
         }
 
-        const startBtn = document.getElementById('startBtn');
-        const resetBtn = document.getElementById('resetBtn');
-        const addTaskBtn = document.getElementById('addTaskBtn');
         const taskList = document.getElementById('taskList');
         const donutSegments = document.getElementById('donut-segments');
-        const currentTaskLabel = document.getElementById('currentTaskLabel');
-        const totalTimeLabel = document.getElementById('totalTimeLabel');
         const timerDisplay = document.getElementById('timerDisplay');
         const hand = document.getElementById('hand');
+
+        function saveToStorage() {
+            localStorage.setItem('morning_routine_tasks', JSON.stringify(tasks));
+        }
 
         function getTotalMinutes() {
             return tasks.reduce((sum, t) => sum + t.duration, 0);
@@ -236,355 +219,224 @@
                 const isEditing = editingId === task.id;
                 const div = document.createElement('div');
                 div.id = `task-row-${task.id}`;
-                div.className = `task-card flex items-center p-3 rounded-xl border border-slate-200 bg-white`;
-                div.style.borderLeft = `4px solid ${task.color}`;
+                div.className = `task-card flex items-center p-4 rounded-xl border border-slate-200 bg-white transition-all duration-200`;
+                div.style.borderLeft = `6px solid ${task.color}`;
                 div.dataset.id = task.id;
 
                 div.innerHTML = `
                     <div class="flex-1 min-w-0 pr-2 pointer-events-none">
                         ${isEditing ? 
-                            `<div class="space-y-2 pointer-events-auto">
-                                <input id="edit-name-${task.id}" class="edit-input font-medium text-slate-700 w-full mb-1" value="${task.name}" placeholder="Task Name">
+                            `<div class="space-y-3 pointer-events-auto">
+                                <input id="edit-name-${task.id}" class="edit-input font-bold text-lg text-slate-700 w-full" value="${task.name}" placeholder="Task Name">
                                 <div class="flex items-center gap-2">
-                                    <input id="edit-dur-${task.id}" type="number" class="edit-input w-16" value="${task.duration}">
-                                    <span class="text-xs text-slate-400 font-bold">MINS</span>
+                                    <input id="edit-dur-${task.id}" type="number" class="edit-input w-20 text-lg" value="${task.duration}">
+                                    <span class="text-xs text-slate-400 font-bold uppercase">Minutes</span>
                                 </div>
                                 <div class="flex flex-wrap gap-2 pt-1">
                                     ${colors.map(c => `<div class="color-dot ${task.color === c ? 'active' : ''}" style="background-color: ${c}" onclick="setEditColor(${task.id}, '${c}')"></div>`).join('')}
                                 </div>
                             </div>` : 
-                            `<div class="font-bold text-slate-700 truncate">${task.name}</div>`
+                            `<div class="font-bold text-slate-700 text-lg truncate">${task.name || 'Untitled Task'}</div>`
                         }
-                        <div class="text-xs text-slate-400 font-medium uppercase tracking-tight">
+                        <div class="text-xs text-slate-400 font-bold uppercase tracking-wide">
                             ${!isEditing ? `${task.duration} minutes` : ''}
                         </div>
                     </div>
                     <div class="flex items-center gap-1 shrink-0">
                         ${isEditing ? 
                             `<div class="flex flex-col gap-2">
-                                <button onclick="saveTask(${task.id})" class="text-white font-bold text-xs bg-indigo-600 px-3 py-2 rounded-lg">SAVE</button>
-                                <button onclick="deleteTask(${task.id})" class="text-red-500 font-bold text-[10px] bg-red-50 px-3 py-1 rounded-lg">DELETE</button>
+                                <button onclick="saveTask(${task.id})" class="text-white font-bold text-sm bg-indigo-600 px-4 py-2 rounded-lg shadow-md">SAVE</button>
+                                <button onclick="deleteTask(${task.id})" class="text-red-500 font-bold text-xs bg-red-50 px-4 py-2 rounded-lg">DELETE</button>
                             </div>` : 
-                            `<button onclick="editTask(${task.id})" class="text-slate-300 hover:text-indigo-600 p-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                            `<button onclick="editTask(${task.id})" class="text-slate-300 hover:text-indigo-600 p-3">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                             </button>
-                            <div class="drag-handle touch-none">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+                            <div class="drag-handle touch-none p-3">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
                             </div>`
                         }
                     </div>
                 `;
 
-                // Standard Drag/Drop for Mouse
-                div.draggable = !isEditing;
-                div.addEventListener('dragstart', (e) => {
-                    if (editingId) return e.preventDefault();
-                    div.classList.add('opacity-40');
-                    e.dataTransfer.setData('text/plain', task.id);
-                });
-                div.addEventListener('dragend', () => {
-                    div.classList.remove('opacity-40');
-                    syncOrderFromDOM();
-                });
-
-                // Touch handling for Tablet
+                // Handle Touch Reordering
                 const handle = div.querySelector('.drag-handle');
                 if (handle) {
-                    handle.addEventListener('touchstart', (e) => initTouchDrag(e, div), { passive: false });
+                    handle.addEventListener('touchstart', (e) => startDragging(e, div), { passive: false });
                 }
 
                 taskList.appendChild(div);
-            } );
-
-            // Mouse-based drag over
-            taskList.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                const afterElement = getDragAfterElement(taskList, e.clientY);
-                const draggable = document.querySelector('.opacity-40');
-                if (draggable) {
-                    if (afterElement == null) taskList.appendChild(draggable);
-                    else taskList.insertBefore(draggable, afterElement);
-                }
             });
-
             updateUI();
         }
 
-        // --- NEW TABLET TOUCH REORDERING LOGIC ---
-        let touchTarget = null;
-        let placeholder = null;
+        // --- IMPROVED DRAG & DROP ENGINE ---
+        let draggedEl = null;
+        let ghostEl = null;
         let startY = 0;
-        let initialOffset = 0;
+        let offsetTop = 0;
 
-        function initTouchDrag(e, row) {
+        function startDragging(e, el) {
             if (editingId) return;
-            e.preventDefault(); // Stop scrolling
+            e.preventDefault();
             
-            touchTarget = row;
+            draggedEl = el;
             const touch = e.touches[0];
-            startY = touch.pageY;
+            startY = touch.clientY;
             
-            const rect = row.getBoundingClientRect();
-            initialOffset = touch.pageY - rect.top;
+            const rect = el.getBoundingClientRect();
+            offsetTop = touch.clientY - rect.top;
 
-            // Create visual placeholder
-            placeholder = document.createElement('div');
-            placeholder.className = 'drop-placeholder';
-            row.parentNode.insertBefore(placeholder, row);
+            // Mark original as ghost/placeholder
+            el.classList.add('is-dragging');
 
-            // Setup the row to float
-            row.classList.add('dragging-active');
-            row.style.top = (touch.pageY - initialOffset) + 'px';
-            row.style.left = rect.left + 'px';
-            row.style.width = rect.width + 'px';
+            // Create floating visual clone
+            ghostEl = el.cloneNode(true);
+            ghostEl.classList.remove('is-dragging');
+            ghostEl.classList.add('drag-ghost');
+            ghostEl.style.width = rect.width + 'px';
+            ghostEl.style.height = rect.height + 'px';
+            ghostEl.style.top = rect.top + 'px';
+            ghostEl.style.left = rect.left + 'px';
+            document.body.appendChild(ghostEl);
 
-            document.addEventListener('touchmove', handleTouchMove, { passive: false });
-            document.addEventListener('touchend', handleTouchEnd);
+            window.addEventListener('touchmove', moveDragging, { passive: false });
+            window.addEventListener('touchend', stopDragging);
         }
 
-        function handleTouchMove(e) {
-            if (!touchTarget) return;
+        function moveDragging(e) {
+            if (!ghostEl) return;
             e.preventDefault();
             const touch = e.touches[0];
-            const currentY = touch.pageY;
+            
+            // Move ghost with finger
+            ghostEl.style.top = (touch.clientY - offsetTop) + 'px';
 
-            // Move the floating element
-            touchTarget.style.top = (currentY - initialOffset) + 'px';
+            // Find closest sibling to swap with
+            const currentY = touch.clientY;
+            const siblings = [...taskList.querySelectorAll('.task-card:not(.is-dragging)')];
+            
+            const nextSibling = siblings.find(sib => {
+                const rect = sib.getBoundingClientRect();
+                return currentY < rect.top + rect.height / 2;
+            });
 
-            // Find where we are in the list
-            const afterElement = getDragAfterElement(taskList, currentY, '.task-card:not(.dragging-active)');
-            if (afterElement == null) {
-                taskList.appendChild(placeholder);
+            if (nextSibling) {
+                taskList.insertBefore(draggedEl, nextSibling);
             } else {
-                taskList.insertBefore(placeholder, afterElement);
+                taskList.appendChild(draggedEl);
             }
         }
 
-        function handleTouchEnd() {
-            if (!touchTarget) return;
+        function stopDragging() {
+            if (ghostEl) ghostEl.remove();
+            if (draggedEl) draggedEl.classList.remove('is-dragging');
             
-            // Move the task to where the placeholder is
-            placeholder.parentNode.insertBefore(touchTarget, placeholder);
+            ghostEl = null;
+            draggedEl = null;
             
-            // Clean up
-            touchTarget.classList.remove('dragging-active');
-            touchTarget.style.position = '';
-            touchTarget.style.top = '';
-            touchTarget.style.left = '';
-            touchTarget.style.width = '';
-            placeholder.remove();
+            window.removeEventListener('touchmove', moveDragging);
+            window.removeEventListener('touchend', stopDragging);
             
-            touchTarget = null;
-            placeholder = null;
-            
-            document.removeEventListener('touchmove', handleTouchMove);
-            document.removeEventListener('touchend', handleTouchEnd);
-            
-            syncOrderFromDOM();
-        }
-
-        function getDragAfterElement(container, y, selector = '.task-card:not(.opacity-40)') {
-            const draggableElements = [...container.querySelectorAll(selector)];
-            return draggableElements.reduce((closest, child) => {
-                const box = child.getBoundingClientRect();
-                const offset = y - box.top - box.height / 2;
-                if (offset < 0 && offset > closest.offset) {
-                    return { offset: offset, element: child };
-                } else {
-                    return closest;
-                }
-            }, { offset: Number.NEGATIVE_INFINITY }).element;
-        }
-
-        function syncOrderFromDOM() {
-            const currentTaskElements = [...taskList.querySelectorAll('.task-card')];
-            const newTasksOrder = currentTaskElements.map(el => {
-                const id = parseInt(el.dataset.id);
-                return tasks.find(t => t.id === id);
-            });
-            tasks = newTasksOrder;
+            // Finalize order
+            const currentItems = [...taskList.querySelectorAll('.task-card')];
+            tasks = currentItems.map(item => tasks.find(t => t.id == item.dataset.id));
             saveToStorage();
             renderClock();
         }
 
+        // --- APP LOGIC ---
         function renderClock() {
             donutSegments.innerHTML = '';
             const total = getTotalMinutes();
-            totalTimeLabel.innerText = `Total Time: ${total}m`;
+            document.getElementById('totalTimeLabel').innerText = `Total Time: ${total}m`;
             let cumulativePercent = 0;
             tasks.forEach(task => {
                 const percent = (task.duration / total) * 100;
-                const strokeDasharray = `${percent} ${100 - percent}`;
-                const strokeDashoffset = -cumulativePercent;
                 const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-                circle.setAttribute("cx", "50");
-                circle.setAttribute("cy", "50");
-                circle.setAttribute("r", "40");
-                circle.setAttribute("fill", "transparent");
-                circle.setAttribute("stroke", task.color);
-                circle.setAttribute("stroke-width", "16");
-                circle.setAttribute("stroke-dasharray", strokeDasharray);
-                circle.setAttribute("stroke-dashoffset", strokeDashoffset);
-                circle.setAttribute("pathLength", "100");
+                circle.setAttribute("cx", "50"); circle.setAttribute("cy", "50"); circle.setAttribute("r", "40");
+                circle.setAttribute("fill", "transparent"); circle.setAttribute("stroke", task.color);
+                circle.setAttribute("stroke-width", "16"); circle.setAttribute("pathLength", "100");
+                circle.setAttribute("stroke-dasharray", `${percent} ${100 - percent}`);
+                circle.setAttribute("stroke-dashoffset", -cumulativePercent);
                 donutSegments.appendChild(circle);
                 cumulativePercent += percent;
             });
             updateUI();
         }
 
-        window.editTask = function(id) {
-            editingId = id;
-            renderTasks();
-        };
-
-        window.setEditColor = function(id, color) {
-            tasks = tasks.map(t => t.id === id ? { ...t, color: color } : t);
-            saveToStorage();
-            renderTasks();
-            renderClock();
-        };
-
-        window.deleteTask = function(id) {
-            tasks = tasks.filter(t => t.id !== id);
-            editingId = null;
-            saveToStorage();
-            renderTasks();
-            renderClock();
-        };
-
-        window.saveTask = function(id) {
-            const nameInput = document.getElementById(`edit-name-${id}`);
-            const durInput = document.getElementById(`edit-dur-${id}`);
-            tasks = tasks.map(t => t.id === id ? {
-                ...t, 
-                name: nameInput.value || "Untitled Task", 
-                duration: parseInt(durInput.value) || 1
-            } : t);
-            editingId = null;
-            saveToStorage();
-            renderTasks();
-            renderClock();
-        };
-
-        addTaskBtn.addEventListener('click', () => {
-            const newId = Date.now();
-            const newTask = {
-                id: newId,
-                name: "",
-                duration: 5,
-                color: colors[tasks.length % colors.length]
-            };
-            tasks.push(newTask);
-            editingId = newId;
-            saveToStorage();
-            renderTasks();
-            renderClock();
-        });
-
         function updateUI() {
-            const totalMin = getTotalMinutes();
-            const totalSec = totalMin * 60;
-            const currentTotalMinutes = elapsedSeconds / 60;
-            const rotation = totalSec > 0 ? (elapsedSeconds / totalSec) * 360 : 0;
-            hand.style.transform = `rotate(${rotation}deg)`;
+            const totalSec = getTotalMinutes() * 60;
+            const currentTotalMin = elapsedSeconds / 60;
+            hand.style.transform = `rotate(${totalSec > 0 ? (elapsedSeconds / totalSec) * 360 : 0}deg)`;
 
-            let runningSumMinutes = 0;
-            let activeFound = false;
-            let currentTaskId = null;
-            let currentTaskRemainingSec = 0;
+            let runningMin = 0;
+            let activeTask = null;
+            let remainingSec = 0;
 
             tasks.forEach(task => {
                 const row = document.getElementById(`task-row-${task.id}`);
                 if (!row) return;
+                const start = runningMin;
+                const end = runningMin + task.duration;
 
-                const startTime = runningSumMinutes;
-                const endTime = runningSumMinutes + task.duration;
-
-                if (currentTotalMinutes >= startTime && currentTotalMinutes < endTime) {
+                if (currentTotalMin >= start && currentTotalMin < end) {
                     row.classList.add('task-active');
-                    currentTaskLabel.innerText = task.name;
-                    activeFound = true;
-                    currentTaskId = task.id;
-                    const taskElapsedSec = elapsedSeconds - (startTime * 60);
-                    currentTaskRemainingSec = (task.duration * 60) - taskElapsedSec;
+                    activeTask = task;
+                    remainingSec = (task.duration * 60) - (elapsedSeconds - start * 60);
                 } else {
                     row.classList.remove('task-active');
                 }
-                runningSumMinutes = endTime;
+                runningMin = end;
             });
 
-            if (activeFound) {
-                const displayMin = Math.floor(currentTaskRemainingSec / 60);
-                const displaySec = Math.floor(currentTaskRemainingSec % 60);
-                timerDisplay.innerText = `${String(displayMin).padStart(2, '0')}:${String(displaySec).padStart(2, '0')}`;
-            } else if (currentTotalMinutes >= totalMin && totalMin > 0) {
+            if (activeTask) {
+                timerDisplay.innerText = `${Math.floor(remainingSec / 60).toString().padStart(2,'0')}:${Math.floor(remainingSec % 60).toString().padStart(2,'0')}`;
+                document.getElementById('currentTaskLabel').innerText = activeTask.name;
+            } else if (elapsedSeconds > 0) {
                 timerDisplay.innerText = "00:00";
-            } else {
-                if (tasks.length > 0 && elapsedSeconds === 0) {
-                    timerDisplay.innerText = `${String(tasks[0].duration).padStart(2, '0')}:00`;
-                } else {
-                    timerDisplay.innerText = "00:00";
-                }
-            }
-
-            if (currentTaskId !== null && currentTaskId !== lastTaskId) {
-                if (lastTaskId !== null) playTripleBeep();
-                lastTaskId = currentTaskId;
-            }
-
-            if (!activeFound && currentTotalMinutes >= totalMin && totalMin > 0) {
-                currentTaskLabel.innerText = "All done! Go girls!";
-                currentTaskLabel.classList.remove('text-indigo-500');
-                currentTaskLabel.classList.add('text-green-500');
-                if (lastTaskId !== "done") {
-                    playTripleBeep();
-                    lastTaskId = "done";
-                }
-                stopTimer();
+                document.getElementById('currentTaskLabel').innerText = "All done! Go girls!";
+            } else if (tasks[0]) {
+                timerDisplay.innerText = `${tasks[0].duration.toString().padStart(2,'0')}:00`;
             }
         }
 
-        function startTimer() {
+        window.editTask = id => { editingId = id; renderTasks(); };
+        window.saveTask = id => {
+            const t = tasks.find(x => x.id === id);
+            t.name = document.getElementById(`edit-name-${id}`).value;
+            t.duration = parseInt(document.getElementById(`edit-dur-${id}`).value) || 1;
+            editingId = null; saveToStorage(); renderTasks(); renderClock();
+        };
+        window.deleteTask = id => { tasks = tasks.filter(x => x.id !== id); editingId = null; saveToStorage(); renderTasks(); renderClock(); };
+        window.setEditColor = (id, c) => { tasks.find(x => x.id === id).color = c; saveToStorage(); renderTasks(); renderClock(); };
+
+        document.getElementById('addTaskBtn').onclick = () => {
+            const id = Date.now();
+            tasks.push({ id, name: "", duration: 5, color: colors[tasks.length % colors.length] });
+            editingId = id; renderTasks();
+        };
+
+        document.getElementById('startBtn').onclick = function() {
             if (audioCtx.state === 'suspended') audioCtx.resume();
-            if (timer) return;
-            startBtn.innerText = "Pause";
-            startBtn.classList.replace('bg-indigo-600', 'bg-orange-500');
-            timer = setInterval(() => {
-                const totalSec = getTotalMinutes() * 60;
-                if (elapsedSeconds < totalSec) {
-                    elapsedSeconds++;
-                    updateUI();
-                } else {
-                    stopTimer();
-                }
-            }, 1000);
-        }
-
-        function stopTimer() {
-            clearInterval(timer);
-            timer = null;
-            startBtn.innerText = "Resume";
-            if (startBtn.classList.contains('bg-orange-500')) {
-                startBtn.classList.replace('bg-orange-500', 'bg-indigo-600');
+            if (timer) {
+                clearInterval(timer); timer = null; this.innerText = "Resume"; this.classList.replace('bg-orange-500', 'bg-indigo-600');
+            } else {
+                this.innerText = "Pause"; this.classList.replace('bg-indigo-600', 'bg-orange-500');
+                timer = setInterval(() => {
+                    if (elapsedSeconds < getTotalMinutes() * 60) { elapsedSeconds++; updateUI(); }
+                    else { clearInterval(timer); timer = null; }
+                }, 1000);
             }
-        }
+        };
 
-        startBtn.addEventListener('click', () => {
-            if (timer) stopTimer();
-            else startTimer();
-        });
-
-        resetBtn.addEventListener('click', () => {
-            stopTimer();
-            elapsedSeconds = 0;
-            lastTaskId = null;
-            startBtn.innerText = "Start Routine";
-            currentTaskLabel.innerText = "Ready to start?";
-            currentTaskLabel.className = "text-sm font-semibold uppercase tracking-wider text-indigo-500 mt-3";
+        document.getElementById('resetBtn').onclick = () => {
+            clearInterval(timer); timer = null; elapsedSeconds = 0;
+            document.getElementById('startBtn').innerText = "Start Routine";
+            document.getElementById('startBtn').className = "flex-1 bg-indigo-600 text-white px-6 py-4 rounded-xl font-bold shadow-lg";
             updateUI();
-        });
+        };
 
-        document.getElementById('testAudioBtn').addEventListener('click', () => playTripleBeep());
+        document.getElementById('testAudioBtn').onclick = playTripleBeep;
 
         renderTasks();
         renderClock();
