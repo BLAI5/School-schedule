@@ -167,17 +167,15 @@
             { id: 9, name: "Go to Car", duration: 5, color: "#475569" }
         ];
 
-        // Load tasks from localStorage or use defaults
         let tasks = JSON.parse(localStorage.getItem('morning_routine_tasks')) || DEFAULT_TASKS;
 
         let timer = null;
-        let elapsedSeconds = 0;
+        let elapsedSeconds = 0; // Total seconds since the start of the whole routine
         let editingId = null;
         let lastTaskId = null;
         
         const colors = ["#93c5fd", "#60a5fa", "#fbbf24", "#34d399", "#2dd4bf", "#818cf8", "#f472b6", "#fb7185", "#475569", "#a855f7"];
 
-        // Audio setup
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         
         function saveToStorage() {
@@ -187,17 +185,13 @@
         function playBeep(frequency, startTime) {
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
-            
             osc.connect(gain);
             gain.connect(audioCtx.destination);
-            
             osc.type = 'sine';
             osc.frequency.setValueAtTime(frequency, startTime);
-            
             gain.gain.setValueAtTime(0, startTime);
             gain.gain.linearRampToValueAtTime(0.1, startTime + 0.01);
             gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.1);
-            
             osc.start(startTime);
             osc.stop(startTime + 0.15);
         }
@@ -294,7 +288,6 @@
                 const afterElement = getDragAfterElement(taskList, e.clientY);
                 const draggable = document.querySelector('.dragging');
                 if (!draggable) return;
-                
                 if (afterElement == null) {
                     taskList.appendChild(draggable);
                 } else {
@@ -305,7 +298,6 @@
 
         function getDragAfterElement(container, y) {
             const draggableElements = [...container.querySelectorAll('.task-card:not(.dragging)')];
-
             return draggableElements.reduce((closest, child) => {
                 const box = child.getBoundingClientRect();
                 const offset = y - box.top - box.height / 2;
@@ -323,7 +315,6 @@
                 const id = parseInt(el.dataset.id);
                 return tasks.find(t => t.id === id);
             });
-            
             tasks = newTasksOrder;
             saveToStorage();
             renderClock();
@@ -333,13 +324,11 @@
             donutSegments.innerHTML = '';
             const total = getTotalMinutes();
             totalTimeLabel.innerText = `Total Time: ${total}m`;
-            
             let cumulativePercent = 0;
             tasks.forEach(task => {
                 const percent = (task.duration / total) * 100;
                 const strokeDasharray = `${percent} ${100 - percent}`;
                 const strokeDashoffset = -cumulativePercent;
-                
                 const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
                 circle.setAttribute("cx", "50");
                 circle.setAttribute("cy", "50");
@@ -351,7 +340,6 @@
                 circle.setAttribute("stroke-dashoffset", strokeDashoffset);
                 circle.setAttribute("pathLength", "100");
                 donutSegments.appendChild(circle);
-
                 cumulativePercent += percent;
             });
             updateUI();
@@ -380,13 +368,11 @@
         window.saveTask = function(id) {
             const nameInput = document.getElementById(`edit-name-${id}`);
             const durInput = document.getElementById(`edit-dur-${id}`);
-            
             tasks = tasks.map(t => t.id === id ? {
                 ...t, 
                 name: nameInput.value || "Untitled Task", 
                 duration: parseInt(durInput.value) || 1
             } : t);
-            
             editingId = null;
             saveToStorage();
             renderTasks();
@@ -411,37 +397,56 @@
         function updateUI() {
             const totalMin = getTotalMinutes();
             const totalSec = totalMin * 60;
-            const currentMinutes = elapsedSeconds / 60;
+            const currentTotalMinutes = elapsedSeconds / 60;
             
-            const displayMin = Math.floor(currentMinutes);
-            const displaySec = Math.floor(elapsedSeconds % 60);
-            timerDisplay.innerText = `${String(displayMin).padStart(2, '0')}:${String(displaySec).padStart(2, '0')}`;
-            
+            // Rotation of clock hand is still based on total progress
             const rotation = totalSec > 0 ? (elapsedSeconds / totalSec) * 360 : 0;
             hand.style.transform = `rotate(${rotation}deg)`;
 
-            let runningSum = 0;
+            let runningSumMinutes = 0;
             let activeFound = false;
             let currentTaskId = null;
+            let currentTaskRemainingSec = 0;
 
             tasks.forEach(task => {
                 const row = document.getElementById(`task-row-${task.id}`);
                 if (!row) return;
 
-                const startTime = runningSum;
-                const endTime = runningSum + task.duration;
+                const startTime = runningSumMinutes;
+                const endTime = runningSumMinutes + task.duration;
 
-                if (currentMinutes >= startTime && currentMinutes < endTime) {
+                if (currentTotalMinutes >= startTime && currentTotalMinutes < endTime) {
                     row.classList.add('task-active');
                     currentTaskLabel.innerText = task.name;
                     activeFound = true;
                     currentTaskId = task.id;
+                    
+                    // Logic to calculate remaining time for CURRENT task
+                    const taskElapsedSec = elapsedSeconds - (startTime * 60);
+                    currentTaskRemainingSec = (task.duration * 60) - taskElapsedSec;
                 } else {
                     row.classList.remove('task-active');
                 }
-                runningSum = endTime;
+                runningSumMinutes = endTime;
             });
 
+            // Update Countdown Display
+            if (activeFound) {
+                const displayMin = Math.floor(currentTaskRemainingSec / 60);
+                const displaySec = Math.floor(currentTaskRemainingSec % 60);
+                timerDisplay.innerText = `${String(displayMin).padStart(2, '0')}:${String(displaySec).padStart(2, '0')}`;
+            } else if (currentTotalMinutes >= totalMin && totalMin > 0) {
+                timerDisplay.innerText = "00:00";
+            } else {
+                // If not started yet, show the first task's time
+                if (tasks.length > 0 && elapsedSeconds === 0) {
+                    timerDisplay.innerText = `${String(tasks[0].duration).padStart(2, '0')}:00`;
+                } else {
+                    timerDisplay.innerText = "00:00";
+                }
+            }
+
+            // Task Transition Sounds
             if (currentTaskId !== null && currentTaskId !== lastTaskId) {
                 if (lastTaskId !== null) {
                     playTripleBeep();
@@ -449,7 +454,8 @@
                 lastTaskId = currentTaskId;
             }
 
-            if (!activeFound && currentMinutes >= totalMin && totalMin > 0) {
+            // Finish State
+            if (!activeFound && currentTotalMinutes >= totalMin && totalMin > 0) {
                 currentTaskLabel.innerText = "All done! Go girls!";
                 currentTaskLabel.classList.remove('text-indigo-500');
                 currentTaskLabel.classList.add('text-green-500');
@@ -506,7 +512,6 @@
             playTripleBeep();
         });
 
-        // Initial render
         renderTasks();
         renderClock();
     </script>
