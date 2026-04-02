@@ -88,6 +88,18 @@
         .edit-input:focus {
             border-bottom-color: #6366f1;
         }
+
+        .color-dot {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid transparent;
+        }
+        .color-dot.active {
+            border-color: #6366f1;
+            transform: scale(1.1);
+        }
     </style>
 </head>
 <body class="p-4 md:p-8 flex flex-col items-center min-h-screen">
@@ -131,9 +143,15 @@
         </div>
 
         <!-- Task List -->
-        <div id="taskList" class="space-y-3 mb-10">
+        <div id="taskList" class="space-y-3 mb-4">
             <!-- Tasks injected here -->
         </div>
+
+        <!-- Add Task Button -->
+        <button id="addTaskBtn" class="w-full py-4 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 font-bold hover:border-indigo-300 hover:text-indigo-400 transition flex items-center justify-center gap-2 mb-10">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            Add New Task
+        </button>
     </div>
 
     <script>
@@ -154,6 +172,8 @@
         let editingId = null;
         let lastTaskId = null;
         
+        const colors = ["#93c5fd", "#60a5fa", "#fbbf24", "#34d399", "#2dd4bf", "#818cf8", "#f472b6", "#fb7185", "#475569", "#a855f7"];
+
         // Audio setup
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         
@@ -185,6 +205,7 @@
 
         const startBtn = document.getElementById('startBtn');
         const resetBtn = document.getElementById('resetBtn');
+        const addTaskBtn = document.getElementById('addTaskBtn');
         const testAudioBtn = document.getElementById('testAudioBtn');
         const timerDisplay = document.getElementById('timerDisplay');
         const hand = document.getElementById('hand');
@@ -211,19 +232,28 @@
                 div.innerHTML = `
                     <div class="flex-1 min-w-0 pr-2 pointer-events-none">
                         ${isEditing ? 
-                            `<input id="edit-name-${task.id}" class="edit-input font-medium text-slate-700 w-full mb-1 pointer-events-auto" value="${task.name}">` : 
+                            `<div class="space-y-2 pointer-events-auto">
+                                <input id="edit-name-${task.id}" class="edit-input font-medium text-slate-700 w-full mb-1" value="${task.name}" placeholder="Task Name">
+                                <div class="flex items-center gap-2">
+                                    <input id="edit-dur-${task.id}" type="number" class="edit-input w-16" value="${task.duration}">
+                                    <span class="text-xs text-slate-400 font-bold">MINS</span>
+                                </div>
+                                <div class="flex flex-wrap gap-2 pt-1">
+                                    ${colors.map(c => `<div class="color-dot ${task.color === c ? 'active' : ''}" style="background-color: ${c}" onclick="setEditColor(${task.id}, '${c}')"></div>`).join('')}
+                                </div>
+                            </div>` : 
                             `<div class="font-bold text-slate-700 truncate">${task.name}</div>`
                         }
                         <div class="text-xs text-slate-400 font-medium uppercase tracking-tight">
-                            ${isEditing ? 
-                                `<input id="edit-dur-${task.id}" type="number" class="edit-input w-12 pointer-events-auto" value="${task.duration}"> mins` : 
-                                `${task.duration} minutes`
-                            }
+                            ${!isEditing ? `${task.duration} minutes` : ''}
                         </div>
                     </div>
                     <div class="flex items-center gap-1 shrink-0">
                         ${isEditing ? 
-                            `<button onclick="saveTask(${task.id})" class="text-green-600 font-bold text-xs bg-green-50 px-3 py-2 rounded-lg">SAVE</button>` : 
+                            `<div class="flex flex-col gap-2">
+                                <button onclick="saveTask(${task.id})" class="text-white font-bold text-xs bg-indigo-600 px-3 py-2 rounded-lg">SAVE</button>
+                                <button onclick="deleteTask(${task.id})" class="text-red-500 font-bold text-[10px] bg-red-50 px-3 py-1 rounded-lg">DELETE</button>
+                            </div>` : 
                             `<button onclick="editTask(${task.id})" class="text-slate-300 hover:text-indigo-600 p-2">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                             </button>
@@ -281,7 +311,6 @@
         }
 
         function saveNewOrder() {
-            // Read the DOM order to update the tasks array
             const currentTaskElements = [...taskList.querySelectorAll('.task-card')];
             const newTasksOrder = currentTaskElements.map(el => {
                 const id = parseInt(el.dataset.id);
@@ -289,7 +318,7 @@
             });
             
             tasks = newTasksOrder;
-            renderClock(); // This will redraw the segments in the new order
+            renderClock();
         }
 
         function renderClock() {
@@ -325,13 +354,26 @@
             renderTasks();
         };
 
+        window.setEditColor = function(id, color) {
+            tasks = tasks.map(t => t.id === id ? { ...t, color: color } : t);
+            renderTasks();
+            renderClock();
+        };
+
+        window.deleteTask = function(id) {
+            tasks = tasks.filter(t => t.id !== id);
+            editingId = null;
+            renderTasks();
+            renderClock();
+        };
+
         window.saveTask = function(id) {
             const nameInput = document.getElementById(`edit-name-${id}`);
             const durInput = document.getElementById(`edit-dur-${id}`);
             
             tasks = tasks.map(t => t.id === id ? {
                 ...t, 
-                name: nameInput.value, 
+                name: nameInput.value || "Untitled Task", 
                 duration: parseInt(durInput.value) || 1
             } : t);
             
@@ -339,6 +381,20 @@
             renderTasks();
             renderClock();
         };
+
+        addTaskBtn.addEventListener('click', () => {
+            const newId = Date.now();
+            const newTask = {
+                id: newId,
+                name: "",
+                duration: 5,
+                color: colors[tasks.length % colors.length]
+            };
+            tasks.push(newTask);
+            editingId = newId;
+            renderTasks();
+            renderClock();
+        });
 
         function updateUI() {
             const totalMin = getTotalMinutes();
