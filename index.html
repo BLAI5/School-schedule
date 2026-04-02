@@ -85,10 +85,6 @@
             color: #cbd5e1;
             touch-action: none;
         }
-        
-        .drag-handle:active {
-            cursor: grabbing;
-        }
 
         .edit-input {
             border-bottom: 2px solid #e2e8f0;
@@ -107,13 +103,6 @@
             border-color: #6366f1;
             transform: scale(1.1);
         }
-
-        @keyframes pulse-soft {
-            0% { opacity: 1; }
-            50% { opacity: 0.7; }
-            100% { opacity: 1; }
-        }
-        .pulse { animation: pulse-soft 2s infinite; }
     </style>
 </head>
 <body class="p-4 md:p-8 flex flex-col items-center min-h-screen">
@@ -151,8 +140,8 @@
                     Reset
                 </button>
             </div>
-            <button id="testAudioBtn" class="text-[10px] text-slate-400 font-bold uppercase hover:text-indigo-500 transition py-1 tracking-widest">
-                🔊 Test Beep
+            <button id="testAudioBtn" class="text-[10px] text-red-500 font-black uppercase hover:text-red-600 transition py-1 tracking-widest border border-red-100 rounded-lg">
+                🚨 TEST MAX VOLUME ALERT 🚨
             </button>
         </div>
 
@@ -186,28 +175,46 @@
         let lastTaskId = null;
         const colors = ["#93c5fd", "#60a5fa", "#fbbf24", "#34d399", "#2dd4bf", "#818cf8", "#f472b6", "#fb7185", "#475569", "#a855f7"];
 
+        // High Intensity Audio System
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         
-        function playBeep(frequency, startTime) {
+        // Dynamic compressor to prevent clipping while pushing volume to 100%
+        const compressor = audioCtx.createDynamicsCompressor();
+        compressor.threshold.setValueAtTime(-10, audioCtx.currentTime);
+        compressor.knee.setValueAtTime(40, audioCtx.currentTime);
+        compressor.ratio.setValueAtTime(12, audioCtx.currentTime);
+        compressor.attack.setValueAtTime(0, audioCtx.currentTime);
+        compressor.release.setValueAtTime(0.25, audioCtx.currentTime);
+        compressor.connect(audioCtx.destination);
+
+        function playLoudAlert(frequency, startTime, duration = 0.3) {
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            osc.type = 'sine';
+            
+            // Square wave is much louder/harsher than sine wave
+            osc.type = 'square'; 
             osc.frequency.setValueAtTime(frequency, startTime);
+            
+            // Ramp up/down to avoid "pops" while staying at peak volume
             gain.gain.setValueAtTime(0, startTime);
-            gain.gain.linearRampToValueAtTime(0.1, startTime + 0.01);
-            gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.1);
+            gain.gain.linearRampToValueAtTime(0.4, startTime + 0.02); // 0.4 is very high for square waves
+            gain.gain.setValueAtTime(0.4, startTime + duration - 0.05);
+            gain.gain.linearRampToValueAtTime(0, startTime + duration);
+            
+            osc.connect(gain);
+            gain.connect(compressor);
+            
             osc.start(startTime);
-            osc.stop(startTime + 0.15);
+            osc.stop(startTime + duration);
         }
 
-        function playTripleBeep() {
+        function playTripleLoudBeep() {
             if (audioCtx.state === 'suspended') audioCtx.resume();
             const now = audioCtx.currentTime;
-            playBeep(880, now);
-            playBeep(880, now + 0.2);
-            playBeep(880, now + 0.4);
+            // High-pitched "alarm" style pattern
+            playLoudAlert(900, now, 0.15);
+            playLoudAlert(900, now + 0.25, 0.15);
+            playLoudAlert(1200, now + 0.5, 0.3);
         }
 
         const taskList = document.getElementById('taskList');
@@ -255,12 +262,9 @@
                         </div>
                     </div>
                     <div class="flex items-center gap-1 shrink-0">
-                        <!-- Next Button (hidden by default, shown by updateUI) -->
-                        <button id="next-btn-${task.id}" onclick="skipToNext(${task.id})" class="hidden flex items-center justify-center bg-indigo-100 text-indigo-700 font-black px-4 py-3 rounded-xl mr-2 active:scale-90 transition">
+                        <button id="next-btn-${task.id}" onclick="skipToNext(${task.id})" class="hidden flex items-center justify-center bg-green-500 text-white font-black px-4 py-3 rounded-xl mr-2 active:scale-90 transition shadow-lg shadow-green-100">
                            DONE
-                           <svg class="ml-1" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 17 18 12 13 7"></polyline><polyline points="6 17 11 12 6 7"></polyline></svg>
                         </button>
-                        
                         ${isEditing ? 
                             `<div class="flex flex-col gap-2">
                                 <button onclick="saveTask(${task.id})" class="text-white font-bold text-sm bg-indigo-600 px-4 py-2 rounded-lg shadow-md">SAVE</button>
@@ -362,9 +366,8 @@
 
         function updateUI() {
             const totalSec = getTotalMinutes() * 60;
-            const remainingTotalSec = totalSec - elapsedSeconds;
+            const remainingTotalSec = Math.max(0, totalSec - elapsedSeconds);
             
-            // Calculate Finish Time
             const now = new Date();
             const finishTime = new Date(now.getTime() + (remainingTotalSec * 1000));
             const hours = finishTime.getHours();
@@ -411,7 +414,7 @@
             }
 
             if (activeTask && activeTask.id !== lastTaskId) {
-                if (lastTaskId !== null) playTripleBeep();
+                if (lastTaskId !== null) playTripleLoudBeep();
                 lastTaskId = activeTask.id;
             }
         }
@@ -421,7 +424,6 @@
             let runningMin = 0;
             for(let task of tasks) {
                 if (task.id === id) {
-                    // Fast forward elapsed time to exactly when this task was supposed to end
                     elapsedSeconds = (runningMin + task.duration) * 60;
                     updateUI();
                     break;
@@ -474,12 +476,9 @@
             updateUI();
         };
 
-        // Keep the finish time clock updating even when paused
-        setInterval(() => {
-            if (!timer) updateUI();
-        }, 1000);
+        setInterval(() => { if (!timer) updateUI(); }, 1000);
 
-        document.getElementById('testAudioBtn').onclick = playTripleBeep;
+        document.getElementById('testAudioBtn').onclick = playTripleLoudBeep;
 
         renderTasks();
         renderClock();
