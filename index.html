@@ -155,7 +155,7 @@
     </div>
 
     <script>
-        let tasks = [
+        const DEFAULT_TASKS = [
             { id: 1, name: "Wake up & Dress", duration: 15, color: "#93c5fd" },
             { id: 2, name: "Washroom", duration: 5, color: "#60a5fa" },
             { id: 3, name: "Eat Breakfast", duration: 20, color: "#fbbf24" },
@@ -167,6 +167,9 @@
             { id: 9, name: "Go to Car", duration: 5, color: "#475569" }
         ];
 
+        // Load tasks from localStorage or use defaults
+        let tasks = JSON.parse(localStorage.getItem('morning_routine_tasks')) || DEFAULT_TASKS;
+
         let timer = null;
         let elapsedSeconds = 0;
         let editingId = null;
@@ -177,6 +180,10 @@
         // Audio setup
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         
+        function saveToStorage() {
+            localStorage.setItem('morning_routine_tasks', JSON.stringify(tasks));
+        }
+
         function playBeep(frequency, startTime) {
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
@@ -318,6 +325,7 @@
             });
             
             tasks = newTasksOrder;
+            saveToStorage();
             renderClock();
         }
 
@@ -356,6 +364,7 @@
 
         window.setEditColor = function(id, color) {
             tasks = tasks.map(t => t.id === id ? { ...t, color: color } : t);
+            saveToStorage();
             renderTasks();
             renderClock();
         };
@@ -363,6 +372,7 @@
         window.deleteTask = function(id) {
             tasks = tasks.filter(t => t.id !== id);
             editingId = null;
+            saveToStorage();
             renderTasks();
             renderClock();
         };
@@ -378,6 +388,7 @@
             } : t);
             
             editingId = null;
+            saveToStorage();
             renderTasks();
             renderClock();
         };
@@ -392,6 +403,7 @@
             };
             tasks.push(newTask);
             editingId = newId;
+            saveToStorage();
             renderTasks();
             renderClock();
         });
@@ -494,6 +506,7 @@
             playTripleBeep();
         });
 
+        // Initial render
         renderTasks();
         renderClock();
     </script>
